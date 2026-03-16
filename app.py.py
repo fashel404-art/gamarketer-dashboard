@@ -1,114 +1,88 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image
 
-# 🎨 إعدادات الهوية البصرية لجماركتير
+# 🎨 إعدادات واجهة جماركتير
 st.set_page_config(page_title="Gamarketer Dashboard", layout="wide")
 
 st.markdown("""
     <style>
-    .metric-card { background-color: #F3E5F5; border-radius: 10px; padding: 15px; border-left: 5px solid #9C27B0; text-align: center; }
+    .metric-card { background-color: #F3E5F5; border-radius: 10px; padding: 15px; border-left: 5px solid #9C27B0; text-align: center; color: #4A148C; }
     .stProgress > div > div > div > div { background-color: #9C27B0; }
     </style>
     """, unsafe_allow_html=True)
 
-# 🦉 الشعار والعنوان
-col_logo, col_title = st.columns([1, 4])
-with col_logo:
-    try:
-        st.image('logo.png', width=120)
-    except:
-        st.write("🦉 **Gamarketer**")
-
-with col_title:
-    st.title("محلل بيانات جماركتير الذكي")
-    st.write("لوحة تحكم احترافية لتحليل حملات الفيديو - نسخة جمال حسان")
-
-st.divider()
+st.title("🦉 محلل بيانات جماركتير")
+st.write("ارفع ملف 'القدر' وسأقوم بحساب كل شيء فوراً.")
 
 # 📥 رفع الملف
-uploaded_file = st.file_uploader("ارفع ملف الإكسل (القدر.xlsx)", type=['xlsx', 'csv'])
+uploaded_file = st.file_uploader("ارفع ملف الإكسل هنا", type=['xlsx', 'csv'])
 
 if uploaded_file:
     try:
-        # قراءة أولية لتحديد أين تبدأ العناوين (لتجنب صفوف التقرير الفارغة في البداية)
+        # قراءة الملف (دعم الإكسل و CSV)
         if uploaded_file.name.endswith('.csv'):
-            df_raw = pd.read_csv(uploaded_file, header=None)
+            df = pd.read_csv(uploaded_file)
         else:
-            df_raw = pd.read_excel(uploaded_file, header=None)
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
 
-        # البحث عن الصف الذي يحتوي على كلمة "اسم الحملة" أو "المبلغ"
-        header_row = 0
-        for i, row in df_raw.iterrows():
-            if any(key in str(row.values) for key in ["اسم الحملة", "المبلغ", "Campaign", "Spent"]):
-                header_row = i
-                break
-        
-        # إعادة قراءة الملف من الصف المكتشف
-        uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file, skiprows=header_row)
-        else:
-            df = pd.read_excel(uploaded_file, skiprows=header_row)
+        # تنظيف البيانات (حذف الصفوف الفارغة)
+        df = df.dropna(how='all')
 
-        # تنظيف البيانات
-        df = df.dropna(how='all').reset_index(drop=True)
+        # 🔍 البحث التلقائي عن الأعمدة
+        cols = df.columns.tolist()
+        def get_col(keys):
+            for k in keys:
+                for c in cols:
+                    if k.lower() in str(c).lower(): return c
+            return cols[0]
 
-        st.success("✅ تم استلام بيانات 'القدر' بنجاح!")
+        # تحديد الأعمدة
+        spend_c = get_col(["المبلغ", "Spent", "Amount"])
+        impr_c = get_col(["الظهور", "Impressions"])
+        thru_c = get_col(["ThruPlay", "ثروبلاي"])
+        v3s_c = get_col(["3-Second", "3 ثوانٍ"])
 
-        # ⚙️ القائمة الجانبية للتحكم بالأعمدة
-        st.sidebar.header("⚙️ ضبط الأعمدة")
-        col_names = df.columns.tolist()
-        
-        def find_col(keywords, options):
-            for k in keywords:
-                for opt in options:
-                    if k in str(opt): return opt
-            return options[0]
+        # تحويل القيم لأرقام
+        for col in [spend_c, impr_c, thru_c, v3s_c]:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.extract('(\d+\.?\d*)')[0], errors='coerce').fillna(0)
 
-        # محاولة ذكية لاختيار الأعمدة تلقائياً من ملفك
-        spend_col = st.sidebar.selectbox("عمود الإنفاق", col_names, index=col_names.index(find_col(["المبلغ", "Spent"], col_names)))
-        impr_col = st.sidebar.selectbox("عمود الظهور", col_names, index=col_names.index(find_col(["الظهور", "Impressions"], col_names)))
-        thru_col = st.sidebar.selectbox("عمود الثروبلاي", col_names, index=col_names.index(find_col(["ThruPlay", "ثروبلاي"], col_names)))
-        views3s_col = st.sidebar.selectbox("عمود 3 ثوانٍ", col_names, index=col_names.index(find_col(["3 ثوانٍ", "3-Second"], col_names)))
-
-        # معالجة الأرقام (حذف العملات EGP و الريال تلقائياً)
-        for c in [spend_col, impr_col, thru_col, views3s_col]:
-            df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', '').str.extract('(\d+\.?\d*)')[0], errors='coerce').fillna(0)
-
-        total_spend = df[spend_col].sum()
-        total_impr = df[impr_col].sum()
-        total_thru = df[thru_col].sum()
-        total_3s = df[views3s_col].sum()
+        # 🧮 الحسابات الأساسية
+        total_spend = df[spend_c].sum()
+        total_impr = df[impr_c].sum()
+        total_thru = df[thru_c].sum()
+        total_3s = df[v3s_c].sum()
 
         hook_rate = (total_3s / total_impr) * 100 if total_impr > 0 else 0
         hold_rate = (total_thru / total_3s) * 100 if total_3s > 0 else 0
         cpt = total_spend / total_thru if total_thru > 0 else 0
 
-        # 📊 عرض النتائج
-        c1, c2, c3 = st.columns(3)
-        c1.markdown(f'<div class="metric-card">💰 الإنفاق الكلي<br><h3>{total_spend:,.2f}</h3></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card">🎬 ثروبلاي<br><h3>{total_thru:,.0f}</h3></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="metric-card">💸 تكلفة الثروبلاي<br><h3>{cpt:.2f}</h3></div>', unsafe_allow_html=True)
+        # 📊 عرض النتائج في كروت احترافية
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f'<div class="metric-card">💰 الإنفاق<br><h2>{total_spend:,.2f}</h2></div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div class="metric-card">🎬 ثروبلاي<br><h2>{total_thru:,.0f}</h2></div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown(f'<div class="metric-card">💸 تكلفة الثروبلاي<br><h2>{cpt:.2f}</h2></div>', unsafe_allow_html=True)
 
         st.divider()
-        
-        col_h, col_r = st.columns(2)
-        with col_h:
-            st.subheader("🪝 قوة الخطاف (Hook Rate)")
-            st.metric("النسبة", f"{hook_rate:.2f}%")
-            st.progress(int(min(hook_rate, 100)))
-            if hook_rate < 15: st.error("❌ أول 3 ثوانٍ غير جذابة!")
-            elif hook_rate > 30: st.success("💎 خطاف ممتاز!")
 
-        with col_r:
-            st.subheader("⏱️ الاحتفاظ (Hold Rate)")
+        # 🎯 تحليل الأداء
+        c_hook, c_hold = st.columns(2)
+        with c_hook:
+            st.subheader("🪝 Hook Rate (قوة الخطف)")
+            st.metric("النسبة", f"{hook_rate:.2f}%")
+            st.progress(min(int(hook_rate), 100))
+            if hook_rate < 15: st.error("⚠️ الخطاف ضعيف! الجمهور لا يكمل أول 3 ثوانٍ.")
+            else: st.success("✅ خطاف ممتاز!")
+
+        with c_hold:
+            st.subheader("⏱️ Hold Rate (الاحتفاظ)")
             st.metric("النسبة", f"{hold_rate:.2f}%")
-            st.progress(int(min(hold_rate, 100)))
-            if hold_rate < 30: st.warning("🔶 الجمهور يمل بسرعة")
-            elif hold_rate > 50: st.success("💎 المحتوى مقنع جداً!")
+            st.progress(min(int(hold_rate), 100))
+            if hold_rate < 30: st.warning("⚠️ المحتوى ممل في المنتصف.")
+            else: st.success("✅ محتوى مقنع وجذاب!")
 
     except Exception as e:
-        st.error(f"حدث خطأ في قراءة محتوى الملف: {e}")
-else:
-    st.info("💡 بانتظار رفع ملف الإكسل للبدء في التحليل...")
+        st.error(f"حدث خطأ: {e}")
+        st.info("تأكد من عمل Reboot للتطبيق من قائمة Manage App.")

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 
-# 🎨 1. إعدادات الهوية البصرية (لافندر وبنفسجي)
+# 🎨 إعدادات الهوية البصرية لجماركتير
 st.set_page_config(page_title="Gamarketer Dashboard", layout="wide")
 
 st.markdown("""
@@ -12,7 +12,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 🦉 2. الشعار والعنوان
+# 🦉 الشعار والعنوان
 col_logo, col_title = st.columns([1, 4])
 with col_logo:
     try:
@@ -22,31 +22,60 @@ with col_logo:
 
 with col_title:
     st.title("محلل بيانات جماركتير الذكي")
-    st.write("لوحة تحكم جمال حسان لتحليل الفيديوهات الإعلانية")
+    st.write("لوحة تحكم احترافية لتحليل حملات الفيديو - نسخة جمال حسان")
 
 st.divider()
 
-# 📥 3. منطقة رفع الملف
-uploaded_file = st.file_uploader("ارفع ملف Excel الخاص بمدير الإعلانات", type=['xlsx', 'csv'])
+# 📥 رفع الملف
+uploaded_file = st.file_uploader("ارفع ملف الإكسل (القدر.xlsx)", type=['xlsx', 'csv'])
 
 if uploaded_file:
     try:
+        # قراءة أولية لتحديد أين تبدأ العناوين (لتجنب صفوف التقرير الفارغة في البداية)
         if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
+            df_raw = pd.read_csv(uploaded_file, header=None)
         else:
-            df = pd.read_excel(uploaded_file)
-        
-        st.success("✅ تم استلام البيانات! حدد الأعمدة من القائمة الجانبية.")
+            df_raw = pd.read_excel(uploaded_file, header=None)
 
-        # ⚙️ 4. القائمة الجانبية لاختيار الأعمدة
+        # البحث عن الصف الذي يحتوي على كلمة "اسم الحملة" أو "المبلغ"
+        header_row = 0
+        for i, row in df_raw.iterrows():
+            if any(key in str(row.values) for key in ["اسم الحملة", "المبلغ", "Campaign", "Spent"]):
+                header_row = i
+                break
+        
+        # إعادة قراءة الملف من الصف المكتشف
+        uploaded_file.seek(0)
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file, skiprows=header_row)
+        else:
+            df = pd.read_excel(uploaded_file, skiprows=header_row)
+
+        # تنظيف البيانات
+        df = df.dropna(how='all').reset_index(drop=True)
+
+        st.success("✅ تم استلام بيانات 'القدر' بنجاح!")
+
+        # ⚙️ القائمة الجانبية للتحكم بالأعمدة
         st.sidebar.header("⚙️ ضبط الأعمدة")
         col_names = df.columns.tolist()
-        spend_col = st.sidebar.selectbox("عمود الإنفاق", col_names)
-        impr_col = st.sidebar.selectbox("عمود الظهور (Impressions)", col_names)
-        thru_col = st.sidebar.selectbox("عمود الثروبلاي (ThruPlays)", col_names)
-        views3s_col = st.sidebar.selectbox("عمود مشاهدات 3 ثوانٍ", col_names)
+        
+        def find_col(keywords, options):
+            for k in keywords:
+                for opt in options:
+                    if k in str(opt): return opt
+            return options[0]
 
-        # الحسابات
+        # محاولة ذكية لاختيار الأعمدة تلقائياً من ملفك
+        spend_col = st.sidebar.selectbox("عمود الإنفاق", col_names, index=col_names.index(find_col(["المبلغ", "Spent"], col_names)))
+        impr_col = st.sidebar.selectbox("عمود الظهور", col_names, index=col_names.index(find_col(["الظهور", "Impressions"], col_names)))
+        thru_col = st.sidebar.selectbox("عمود الثروبلاي", col_names, index=col_names.index(find_col(["ThruPlay", "ثروبلاي"], col_names)))
+        views3s_col = st.sidebar.selectbox("عمود 3 ثوانٍ", col_names, index=col_names.index(find_col(["3 ثوانٍ", "3-Second"], col_names)))
+
+        # معالجة الأرقام (حذف العملات EGP و الريال تلقائياً)
+        for c in [spend_col, impr_col, thru_col, views3s_col]:
+            df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', '').str.extract('(\d+\.?\d*)')[0], errors='coerce').fillna(0)
+
         total_spend = df[spend_col].sum()
         total_impr = df[impr_col].sum()
         total_thru = df[thru_col].sum()
@@ -56,15 +85,14 @@ if uploaded_file:
         hold_rate = (total_thru / total_3s) * 100 if total_3s > 0 else 0
         cpt = total_spend / total_thru if total_thru > 0 else 0
 
-        # 📊 5. العرض البصري
+        # 📊 عرض النتائج
         c1, c2, c3 = st.columns(3)
         c1.markdown(f'<div class="metric-card">💰 الإنفاق الكلي<br><h3>{total_spend:,.2f}</h3></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card">🎬 ثروبلاي<br><h3>{total_thru:,}</h3></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card">🎬 ثروبلاي<br><h3>{total_thru:,.0f}</h3></div>', unsafe_allow_html=True)
         c3.markdown(f'<div class="metric-card">💸 تكلفة الثروبلاي<br><h3>{cpt:.2f}</h3></div>', unsafe_allow_html=True)
 
         st.divider()
         
-        # تحليل الجودة
         col_h, col_r = st.columns(2)
         with col_h:
             st.subheader("🪝 قوة الخطاف (Hook Rate)")
@@ -81,6 +109,6 @@ if uploaded_file:
             elif hold_rate > 50: st.success("💎 المحتوى مقنع جداً!")
 
     except Exception as e:
-        st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+        st.error(f"حدث خطأ في قراءة محتوى الملف: {e}")
 else:
-    st.info("💡 بانتظار رفع الملف للتحليل...")
+    st.info("💡 بانتظار رفع ملف الإكسل للبدء في التحليل...")

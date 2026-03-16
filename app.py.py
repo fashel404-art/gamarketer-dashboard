@@ -1,88 +1,110 @@
 import streamlit as st
 import pandas as pd
 
-# 🎨 إعدادات واجهة جماركتير
-st.set_page_config(page_title="Gamarketer Dashboard", layout="wide")
+# 🎨 إعدادات واجهة جماركتير الاحترافية
+st.set_page_config(page_title="Gamarketer Pro Dashboard", layout="wide")
 
 st.markdown("""
     <style>
-    .metric-card { background-color: #F3E5F5; border-radius: 10px; padding: 15px; border-left: 5px solid #9C27B0; text-align: center; color: #4A148C; }
+    .metric-box { background-color: #F3E5F5; border-radius: 12px; padding: 20px; border-right: 5px solid #9C27B0; text-align: center; color: #4A148C; margin-bottom: 10px; }
     .stProgress > div > div > div > div { background-color: #9C27B0; }
+    h3 { color: #6A1B9A; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🦉 محلل بيانات جماركتير")
-st.write("ارفع ملف 'القدر' وسأقوم بحساب كل شيء فوراً.")
+st.title("🦉 محلل جماركتير الذكي - Gamarketer Pro")
+st.write("تحليل شامل للمقاييس (CAC, LTV, ROAS) وقوة المحتوى الإعلاني")
 
 # 📥 رفع الملف
-uploaded_file = st.file_uploader("ارفع ملف الإكسل هنا", type=['xlsx', 'csv'])
+uploaded_file = st.file_uploader("ارفع ملف 'القدر' أو أي تقرير إعلانات", type=['xlsx', 'csv'])
 
 if uploaded_file:
     try:
-        # قراءة الملف (دعم الإكسل و CSV)
+        # قراءة ذكية لتخطي الصفوف التعريفية في البداية
         if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
+            df_temp = pd.read_csv(uploaded_file, header=None)
         else:
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
+            df_temp = pd.read_excel(uploaded_file, header=None)
 
-        # تنظيف البيانات (حذف الصفوف الفارغة)
-        df = df.dropna(how='all')
+        # البحث عن أول صف يحتوي على بيانات حقيقية (زي "اسم الحملة" أو "المبلغ")
+        header_index = 0
+        for i, row in df_temp.iterrows():
+            if any(word in str(row.values) for word in ["اسم", "المبلغ", "Campaign", "Spent", "Amount"]):
+                header_index = i
+                break
+        
+        # إعادة القراءة من الصف الصحيح
+        uploaded_file.seek(0)
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file, skiprows=header_index)
+        else:
+            df = pd.read_excel(uploaded_file, skiprows=header_index)
 
-        # 🔍 البحث التلقائي عن الأعمدة
+        # تنظيف البيانات
+        df = df.dropna(how='all').reset_index(drop=True)
+
+        # ⚙️ محرك التعرف التلقائي على الأعمدة
         cols = df.columns.tolist()
-        def get_col(keys):
+        def find_c(keys):
             for k in keys:
                 for c in cols:
                     if k.lower() in str(c).lower(): return c
-            return cols[0]
+            return None
 
-        # تحديد الأعمدة
-        spend_c = get_col(["المبلغ", "Spent", "Amount"])
-        impr_c = get_col(["الظهور", "Impressions"])
-        thru_c = get_col(["ThruPlay", "ثروبلاي"])
-        v3s_c = get_col(["3-Second", "3 ثوانٍ"])
+        # تعيين الأعمدة
+        sp_c = find_c(["المبلغ", "Spent", "Amount"])
+        im_c = find_c(["الظهور", "Impressions"])
+        th_c = find_c(["ThruPlay", "ثروبلاي"])
+        v3_c = find_c(["3 ثوانٍ", "3-Second"])
+        pu_c = find_c(["عمليات الشراء", "Purchases", "Results"])
+        va_c = find_c(["قيمة", "Value", "Revenue"])
 
-        # تحويل القيم لأرقام
-        for col in [spend_c, impr_c, thru_c, v3s_c]:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.extract('(\d+\.?\d*)')[0], errors='coerce').fillna(0)
+        # تحويل البيانات لأرقام ومعالجة العملات (EGP, SR...)
+        for c in [sp_c, im_c, th_c, v3_c, pu_c, va_c]:
+            if c:
+                df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', '').str.extract('(\d+\.?\d*)')[0], errors='coerce').fillna(0)
 
-        # 🧮 الحسابات الأساسية
-        total_spend = df[spend_c].sum()
-        total_impr = df[impr_c].sum()
-        total_thru = df[thru_c].sum()
-        total_3s = df[v3s_c].sum()
+        # 🧮 الحسابات المتقدمة
+        total_spend = df[sp_c].sum() if sp_c else 0
+        total_purchases = df[pu_c].sum() if pu_c else 1 # لتجنب القسمة على صفر
+        total_revenue = df[va_c].sum() if va_c else 0
+        
+        # المقاييس اللي طلبتها:
+        cac = total_spend / total_purchases if total_purchases > 0 else 0
+        roas = total_revenue / total_spend if total_spend > 0 else 0
+        hook_rate = (df[v3_c].sum() / df[im_c].sum() * 100) if im_c and v3_c else 0
+        hold_rate = (df[th_c].sum() / df[v3_c].sum() * 100) if v3_c and th_c else 0
 
-        hook_rate = (total_3s / total_impr) * 100 if total_impr > 0 else 0
-        hold_rate = (total_thru / total_3s) * 100 if total_3s > 0 else 0
-        cpt = total_spend / total_thru if total_thru > 0 else 0
-
-        # 📊 عرض النتائج في كروت احترافية
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f'<div class="metric-card">💰 الإنفاق<br><h2>{total_spend:,.2f}</h2></div>', unsafe_allow_html=True)
-        with col2:
-            st.markdown(f'<div class="metric-card">🎬 ثروبلاي<br><h2>{total_thru:,.0f}</h2></div>', unsafe_allow_html=True)
-        with col3:
-            st.markdown(f'<div class="metric-card">💸 تكلفة الثروبلاي<br><h2>{cpt:.2f}</h2></div>', unsafe_allow_html=True)
+        # 📊 عرض النتائج في مربعات
+        st.subheader("🚀 مقاييس النمو والأداء")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(f'<div class="metric-box">💰 الإنفاق<br><h3>{total_spend:,.2f}</h3></div>', unsafe_allow_html=True)
+        m2.markdown(f'<div class="metric-box">🎯 CAC (تكلفة العميل)<br><h3>{cac:,.2f}</h3></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="metric-box">📈 ROAS<br><h3>{roas:.2f}x</h3></div>', unsafe_allow_html=True)
+        m4.markdown(f'<div class="metric-box">💎 الإيرادات<br><h3>{total_revenue:,.2f}</h3></div>', unsafe_allow_html=True)
 
         st.divider()
 
-        # 🎯 تحليل الأداء
-        c_hook, c_hold = st.columns(2)
-        with c_hook:
-            st.subheader("🪝 Hook Rate (قوة الخطف)")
-            st.metric("النسبة", f"{hook_rate:.2f}%")
+        # 🎬 تحليل جودة الفيديو
+        st.subheader("🎬 تحليل سلوك المشاهد (Video Funnel)")
+        c_h, c_r = st.columns(2)
+        with c_h:
+            st.write(f"**Hook Rate:** {hook_rate:.2f}%")
             st.progress(min(int(hook_rate), 100))
-            if hook_rate < 15: st.error("⚠️ الخطاف ضعيف! الجمهور لا يكمل أول 3 ثوانٍ.")
-            else: st.success("✅ خطاف ممتاز!")
+            if hook_rate < 20: st.error("❌ الخطاف ضعيف - الجمهور لا ينجذب للفيديو")
+            else: st.success("✅ خطاف قوي - المحتوى جذاب")
 
-        with c_hold:
-            st.subheader("⏱️ Hold Rate (الاحتفاظ)")
-            st.metric("النسبة", f"{hold_rate:.2f}%")
+        with c_r:
+            st.write(f"**Hold Rate:** {hold_rate:.2f}%")
             st.progress(min(int(hold_rate), 100))
-            if hold_rate < 30: st.warning("⚠️ المحتوى ممل في المنتصف.")
-            else: st.success("✅ محتوى مقنع وجذاب!")
+            if hold_rate < 30: st.warning("⚠️ محتوى ممل - المشاهد يهرب في المنتصف")
+            else: st.success("✅ محتوى مقنع - المشاهد يكمل الفيديو")
+
+        # عرض الجدول النهائي للتأكد
+        with st.expander("👁️ استعراض البيانات الخام التي تم تحليلها"):
+            st.dataframe(df)
 
     except Exception as e:
-        st.error(f"حدث خطأ: {e}")
-        st.info("تأكد من عمل Reboot للتطبيق من قائمة Manage App.")
+        st.error(f"حدث خطأ في قراءة البيانات: {e}")
+else:
+    st.info("👋 مرحباً جمال! ارفع ملف إكسل من مدير الإعلانات وسأظهر لك الـ CAC والـ ROAS وقوة الفيديو فوراً.")
